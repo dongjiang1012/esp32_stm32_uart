@@ -1,6 +1,5 @@
-// ESP32-S3 Web 控制器
-// AP 模式热点: RobotArm (无密码)
-// 网页地址: http://192.168.4.1
+// ESP32-S3 Web 控制器 v2 - 公网控制版
+// STA 模式连接路由器，配合 natapp 实现公网访问
 // Serial1 (GPIO43/44) 与 STM32 通信
 
 #include <Arduino.h>
@@ -10,8 +9,10 @@
 #define STM32_TX_PIN 43
 #define STM32_RX_PIN 44
 
-const char* ssid = "RobotArm";
-const char* password = "";
+// ============ WiFi 配置 ============
+const char* WIFI_SSID = "Xiaomi 13";
+const char* WIFI_PASS = "88888888";
+// ==================================
 
 WebServer server(80);
 
@@ -27,6 +28,7 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: Arial, sans-serif; background: #1a1a2e; color: #eee; padding: 10px; }
 h1 { text-align: center; padding: 10px; color: #e94560; }
+.info { text-align: center; font-size: 12px; color: #888; margin-bottom: 8px; }
 .section { background: #16213e; border-radius: 8px; padding: 12px; margin: 8px 0; }
 .servo-row { display: flex; align-items: center; gap: 6px; margin: 6px 0; flex-wrap: wrap; }
 .servo-row label { min-width: 70px; font-size: 13px; }
@@ -51,6 +53,7 @@ h1 { text-align: center; padding: 10px; color: #e94560; }
 </head>
 <body>
 <h1>Robot Arm</h1>
+<div class="info" id="connInfo"></div>
 
 <div class="section" id="servos"></div>
 
@@ -111,6 +114,11 @@ for (let i = 0; i < 6; i++) {
     document.getElementById('v'+i).textContent = this.value;
   });
 }
+
+// 显示连接信息
+fetch('/info').then(r=>r.text()).then(t=>{
+  document.getElementById('connInfo').textContent = t;
+});
 
 function log(msg, cls) {
   const el = document.getElementById('log');
@@ -187,6 +195,12 @@ void handleRoot() {
   server.send(200, "text/html", HTML_PAGE);
 }
 
+void handleInfo() {
+  String info = "Local: " + WiFi.localIP().toString();
+  info += " | RSSI: " + String(WiFi.RSSI()) + "dBm";
+  server.send(200, "text/plain", info);
+}
+
 void handleCmd() {
   if (!server.hasArg("c")) {
     server.send(400, "text/plain", "Missing param");
@@ -205,27 +219,44 @@ void handleNotFound() {
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("=== ESP32-S3 RobotArm Web Controller ===");
+  Serial.println("=== ESP32-S3 RobotArm Web Controller v2 ===");
 
   // 初始化与 STM32 的串口
   Serial1.begin(115200, SERIAL_8N1, STM32_RX_PIN, STM32_TX_PIN);
   Serial.println("Serial1 ready: TX=" + String(STM32_TX_PIN) + " RX=" + String(STM32_RX_PIN));
 
-  // 创建 WiFi 热点
-  WiFi.softAP(ssid, password);
-  Serial.println("AP SSID: " + String(ssid));
-  Serial.println("AP IP: " + WiFi.softAPIP().toString());
+  // 连接 WiFi（STA 模式）
+  Serial.printf("Connecting to WiFi: %s ...\n", WIFI_SSID);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+  Serial.println("WiFi connected!");
+  Serial.println("Local IP: " + WiFi.localIP().toString());
+  Serial.println("RSSI: " + String(WiFi.RSSI()) + " dBm");
 
   // 注册 Web 路由
   server.on("/", handleRoot);
   server.on("/cmd", handleCmd);
+  server.on("/info", handleInfo);
   server.onNotFound(handleNotFound);
   server.begin();
   Serial.println("Web server started on port 80");
-  Serial.println("Open http://192.168.4.1 in browser");
+  Serial.println("----------------------------------");
+  Serial.println("natapp config: forward to " + WiFi.localIP().toString() + ":80");
   Serial.println("----------------------------------");
 }
 
 void loop() {
   server.handleClient();
+
+  // WiFi 断线重连
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi lost, reconnecting...");
+    WiFi.reconnect();
+    delay(5000);
+  }
 }
