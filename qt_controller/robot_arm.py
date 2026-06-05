@@ -99,6 +99,7 @@ class MainWindow(QMainWindow):
         self.preset_running = False
         self.preset_step = 0
         self.current_preset_name = ''
+        self.voltage_pending = False
         self.sliders = []
         self.value_labels = []
         self.time_spins = []
@@ -113,6 +114,9 @@ class MainWindow(QMainWindow):
         self.preset_timer.setSingleShot(True)
         self.preset_timer.timeout.connect(self._on_preset_step)
 
+        self.voltage_timer = QTimer()
+        self.voltage_timer.timeout.connect(self._query_voltage)
+
     def _build_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
@@ -123,6 +127,17 @@ class MainWindow(QMainWindow):
         title.setStyleSheet('font-size: 20px; font-weight: bold; color: #e94560; padding: 8px;')
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
+
+        # Battery Voltage
+        volt_group = QGroupBox('Battery')
+        volt_layout = QHBoxLayout(volt_group)
+        volt_layout.addWidget(QLabel('Voltage:'))
+        self.voltage_label = QLabel('--')
+        self.voltage_label.setStyleSheet('font-size: 22px; font-weight: bold; color: #e94560;')
+        volt_layout.addWidget(self.voltage_label)
+        volt_layout.addWidget(QLabel('V'))
+        volt_layout.addStretch()
+        layout.addWidget(volt_group)
 
         # Connection
         conn_group = QGroupBox('Connection')
@@ -244,6 +259,8 @@ class MainWindow(QMainWindow):
             self.port_combo.setEnabled(False)
             self.refresh_btn.setEnabled(False)
             self._log(f'Connected to {port_name}', '#81c784')
+            self.voltage_timer.start(5000)
+            QTimer.singleShot(1000, self._query_voltage)
 
             self.reader_thread = SerialReaderThread(self.ser)
             self.reader_thread.line_received.connect(self._on_serial_line)
@@ -252,6 +269,10 @@ class MainWindow(QMainWindow):
             self._log(f'Open failed: {e}', '#e94560')
 
     def _disconnect(self):
+        self.voltage_timer.stop()
+        self.voltage_pending = False
+        self.voltage_label.setText('--')
+        self.voltage_label.setStyleSheet('font-size: 22px; font-weight: bold; color: #e94560;')
         if self.preset_running:
             self.preset_running = False
             self.preset_timer.stop()
@@ -282,7 +303,23 @@ class MainWindow(QMainWindow):
             self._log(f'[ESP32] {line}', '#4fc3f7')
         else:
             self._log(f'[STM32] {line}', '#81c784')
+            # 检查是否是电压响应 (浮点数)
+            if self.voltage_pending:
+                try:
+                    v = float(line)
+                    self.voltage_pending = False
+                    self.voltage_label.setText(f'{v:.2f}')
+                    if v < 3.5:
+                        self.voltage_label.setStyleSheet('font-size: 22px; font-weight: bold; color: #ff4444;')
+                    else:
+                        self.voltage_label.setStyleSheet('font-size: 22px; font-weight: bold; color: #e94560;')
+                    self.waiting_response = False
+                    self._process_queue()
+                    return
+                except ValueError:
+                    pass
             if line in ('OK', 'ERR', 'TIMEOUT'):
+                self.voltage_pending = False
                 self.waiting_response = False
                 self._process_queue()
 
@@ -311,6 +348,11 @@ class MainWindow(QMainWindow):
 
     def _process_queue(self):
         self._try_send_next()
+
+    def _query_voltage(self):
+        if self.ser and self.ser.is_open and not self.voltage_pending:
+            self.voltage_pending = True
+            self._send_command('VOLT')
 
     def _send_servo(self, idx):
         cmd = f'S{idx},{self.sliders[idx].value()},{self.time_spins[idx].value()}'
