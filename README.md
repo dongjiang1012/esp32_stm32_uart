@@ -36,14 +36,22 @@ GND                  → GND
 4. PC 端运行 natapp 客户端，配置转发到 ESP32 的本地 IP:80
 5. 浏览器访问 natapp 分配的公网地址即可控制
 
+### v3 - PC 桌面控制（Qt）
+1. 烧录 `esp32/` 和 `stm32/` 分别到对应板子
+2. 用 USB 线连接 ESP32-S3 到电脑
+3. 运行 Qt 程序 `RobotArm`，选择 ESP32 的 COM 口，点击 Connect
+4. 通过滑块控制 6 路舵机，或使用预设动作（Home/Grab/Wave）
+
 ## 项目结构
 
 ```
-esp32/          ESP32-S3 端 - Web 控制 + UART 转发
+esp32/          ESP32-S3 端 - Web 控制 + USB CDC + UART 转发
 stm32/          STM32F103RB 端 - UART 接收 + 舵机 PWM 驱动
+qt_controller/  PC 端 Qt 桌面控制软件
 ```
 
 ## 版本记录
 
 - **v1.0** - 首版，WiFi AP 模式局域网无线控制 6 路舵机
 - **v2.0** - 改为 STA 模式连接路由器，配合 natapp 实现公网远程控制；新增 WiFi 断线重连、网页信号强度显示
+- **v3.0** - 新增 USB CDC 通道，ESP32 同时支持网页和 USB 串口控制；新增 Qt 桌面控制软件

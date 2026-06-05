@@ -190,6 +190,26 @@ String sendToSTM32(String cmd) {
   return "TIMEOUT";
 }
 
+// ========== USB CDC 转发到 STM32 ==========
+String usbInputBuffer = "";
+
+void handleUsbSerial() {
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n') {
+      usbInputBuffer.trim();
+      if (usbInputBuffer.length() > 0) {
+        Serial.println("[USB] " + usbInputBuffer);
+        String resp = sendToSTM32(usbInputBuffer);
+        Serial.println(resp);  // OK / ERR / TIMEOUT, Qt app parses this
+      }
+      usbInputBuffer = "";
+    } else if (c != '\r') {
+      usbInputBuffer += c;
+    }
+  }
+}
+
 // ========== Web 路由 ==========
 void handleRoot() {
   server.send(200, "text/html", HTML_PAGE);
@@ -252,6 +272,9 @@ void setup() {
 
 void loop() {
   server.handleClient();
+
+  // USB CDC 指令转发
+  handleUsbSerial();
 
   // WiFi 断线重连
   if (WiFi.status() != WL_CONNECTED) {
